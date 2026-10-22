@@ -1,0 +1,14 @@
+services:
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n
+    restart: unless-stopped
+    # Host network: the NAS's default Docker bridge had no internet access.
+    network_mode: host
+    environment:
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+      - GENERIC_TIMEZONE=${TZ:-Asia/Kolkata}
+      - TZ=${TZ:-Asia/Kolkata}
+      - N8N_PORT=5678
+    volumes:
+      - ${N8N_DATA_DIR:-./n8n_data}:/home/node/.n8n

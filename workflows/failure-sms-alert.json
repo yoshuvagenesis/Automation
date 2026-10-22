@@ -1,0 +1,267 @@
+{
+  "name": "Failure SMS Alert",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -880,
+        -432
+      ],
+      "id": "b7fb826f-5129-4f31-ad5b-2855a3076246",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4088579f-4c61-435f-8218-afb75c40b093",
+              "name": "provider",
+              "value": "routeros",
+              "type": "string"
+            },
+            {
+              "id": "2c635dd1-0283-4e75-8bdf-722200c68f3b",
+              "name": "to",
+              "value": "+10000000000",
+              "type": "string"
+            },
+            {
+              "id": "6452cf5f-a886-44e4-b357-539b2b5a625d",
+              "name": "routeros_url",
+              "value": "http://192.168.88.1/rest/tool/sms/send",
+              "type": "string"
+            },
+            {
+              "id": "c58b1994-9969-4d8f-a075-2310334be67a",
+              "name": "routeros_port",
+              "value": "lte1",
+              "type": "string"
+            },
+            {
+              "id": "ab0a11f9-814a-4e06-bd86-57958a34a860",
+              "name": "android_url",
+              "value": "http://192.168.1.50:8080/message",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -672,
+        -432
+      ],
+      "id": "f9733c34-d245-49ff-8a6f-beb1a9f1baa1",
+      "name": "Config (edit me)",
+      "notes": "provider: routeros | android. Set 'to' to your phone number in international format."
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b59f2f4e-7ca6-4264-aeee-f00a7cc76fd8",
+              "name": "message",
+              "value": "={{ $json.workflow.name }} failed at {{ $json.execution.lastNodeExecuted }}. {{ ($json.execution.error.message || '').slice(0, 60) }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -464,
+        -432
+      ],
+      "id": "f28fc03d-b47b-4a07-8176-502696780a57",
+      "name": "Build message"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "903c89fb-3f0f-4449-9afe-8c0fffc692d8",
+                    "leftValue": "={{ $json.provider }}",
+                    "rightValue": "routeros",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "routeros"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "26789d2e-41df-4916-afea-bbeb0174a485",
+                    "leftValue": "={{ $json.provider }}",
+                    "rightValue": "android",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "android"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.2,
+      "position": [
+        -256,
+        -432
+      ],
+      "id": "d57a125a-b2b9-440f-810b-b373a90014da",
+      "name": "Pick provider"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.routeros_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "port",
+              "value": "={{ $json.routeros_port }}"
+            },
+            {
+              "name": "phone-number",
+              "value": "={{ $json.to }}"
+            },
+            {
+              "name": "message",
+              "value": "={{ $json.message }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -32,
+        -528
+      ],
+      "id": "20d7d53f-2322-4e31-b9c9-0b506cd27d86",
+      "name": "SMS via MikroTik modem"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.android_url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ textMessage: { text: $json.message }, phoneNumbers: [$json.to] }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -32,
+        -336
+      ],
+      "id": "78e2255e-c283-4484-b683-081f3b83b065",
+      "name": "SMS via Android phone"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Config (edit me)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Config (edit me)": {
+      "main": [
+        [
+          {
+            "node": "Build message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build message": {
+      "main": [
+        [
+          {
+            "node": "Pick provider",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Pick provider": {
+      "main": [
+        [
+          {
+            "node": "SMS via MikroTik modem",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "SMS via Android phone",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "tags": []
+}

@@ -1,0 +1,479 @@
+{
+  "name": "Mail Cleaner",
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "get",
+        "dataTableId": {
+          "__rl": true,
+          "value": "",
+          "mode": "list",
+          "cachedResultName": "senders"
+        },
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1.1,
+      "position": [
+        -2672,
+        -928
+      ],
+      "id": "da4be9d6-b162-4bef-b52c-11e7b9441920",
+      "name": "Get senders"
+    },
+    {
+      "parameters": {
+        "jsCode": "const norm = s => String(s || '').toLowerCase().trim();\n\nconst senders = $input.all()\n  .map(i => i.json)\n  .filter(r => r.sender && ['trash', 'delete'].includes(norm(r.action)))\n  .map(r => norm(r.sender));\n\nconst chunks = [];\nfor (let i = 0; i < senders.length; i += 40) {\n  chunks.push({\n    json: {\n      query: 'in:anywhere -in:sent -in:trash -is:starred -is:important from:(' + senders.slice(i, i + 40).join(' OR ') + ')',\n      count: senders.slice(i, i + 40).length\n    }\n  });\n}\nreturn chunks;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2448,
+        -1264
+      ],
+      "id": "fc592d7e-ece6-4051-a402-e9b29cc97238",
+      "name": "Build Gmail queries"
+    },
+    {
+      "parameters": {
+        "resource": "thread",
+        "limit": 250,
+        "filters": {
+          "includeSpamTrash": true,
+          "q": "={{ $json.query }}"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -2224,
+        -1456
+      ],
+      "id": "4d0512ac-ad12-4a44-8b97-522e3b51ba1c",
+      "name": "Gmail 1: search threads",
+      "webhookId": "db447ff1-02d2-4ee0-90f8-d3fcc5d84620"
+    },
+    {
+      "parameters": {
+        "resource": "thread",
+        "limit": 250,
+        "filters": {
+          "includeSpamTrash": true,
+          "q": "={{ $json.query }}"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -2224,
+        -1264
+      ],
+      "id": "cadb4860-5a2c-4ea6-a6f4-dd40c3b6ca98",
+      "name": "Gmail 2: search threads",
+      "webhookId": "db447ff1-02d2-4ee0-90f8-d3fcc5d84620"
+    },
+    {
+      "parameters": {
+        "resource": "thread",
+        "operation": "trash",
+        "threadId": "={{ $json.id }}"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -2000,
+        -1456
+      ],
+      "id": "c0f8d1a5-5760-468a-8a14-703a35e39b7e",
+      "name": "Gmail 1: trash",
+      "webhookId": "00aca269-a621-42ea-8cba-57846e4becdc"
+    },
+    {
+      "parameters": {
+        "resource": "thread",
+        "operation": "trash",
+        "threadId": "={{ $json.id }}"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -2000,
+        -1264
+      ],
+      "id": "a3f89bc1-8614-493b-96c1-ffeeb34036f6",
+      "name": "Gmail 2: trash",
+      "webhookId": "00aca269-a621-42ea-8cba-57846e4becdc"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "hours"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        -2896,
+        -928
+      ],
+      "id": "a326f775-d78c-436b-8744-7f3a3720a5f4",
+      "name": "Hourly trigger",
+      "retryOnFail": false
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        -2448,
+        -640
+      ],
+      "id": "37ce4d36-9876-42c4-a15e-9a559ba87342",
+      "name": "Outlook 1: get messages",
+      "webhookId": "11324ffe-1197-41a0-99aa-917a7346df01",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const TABLE_NODE = 'Get senders';   // must match the node's name on the canvas exactly\n\nconst norm = s => String(s || '').toLowerCase().trim();\n\nconst rules = $(TABLE_NODE).all()\n  .map(i => i.json)\n  .filter(r => r.sender && ['trash', 'delete'].includes(norm(r.action)))\n  .map(r => norm(r.sender));\n\nconst fullAddresses = new Set(rules.filter(s => s.includes('@') && !s.startsWith('@')));\nconst domains = rules\n  .filter(s => !s.includes('@') || s.startsWith('@'))\n  .map(s => s.replace(/^@/, ''));\n\nconst out = [];\nfor (const item of $input.all()) {\n  const m = item.json;\n  const addr = norm(m.from?.emailAddress?.address || (typeof m.from === 'string' ? m.from : ''));\n  if (!addr) continue;\n  const domain = addr.split('@')[1] || '';\n  const hit = fullAddresses.has(addr)\n    || domains.some(d => domain === d || domain.endsWith('.' + d));\n  if (hit) {\n    out.push({ json: { id: m.id, sender: addr, subject: m.subject || '' } });\n  }\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2224,
+        -640
+      ],
+      "id": "87f64c77-efef-4000-93aa-28b0e535e780",
+      "name": "Outlook 1: match senders"
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "messageId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        }
+      },
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        -2000,
+        -640
+      ],
+      "id": "c68197a2-d6f6-45f3-b746-d2812a28d59a",
+      "name": "Outlook 1: delete",
+      "webhookId": "0c66951a-ea97-42ad-b2ae-a290942d17c1"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        -2448,
+        -432
+      ],
+      "id": "eba9b3da-8b16-4ec6-9ce4-1fbcc4e7783a",
+      "name": "Outlook 2: get messages",
+      "webhookId": "5ab95b3f-767e-4b6f-a5ce-f04c2ca46ade",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const TABLE_NODE = 'Get senders';   // must match the node's name on the canvas exactly\n\nconst norm = s => String(s || '').toLowerCase().trim();\n\nconst rules = $(TABLE_NODE).all()\n  .map(i => i.json)\n  .filter(r => r.sender && ['trash', 'delete'].includes(norm(r.action)))\n  .map(r => norm(r.sender));\n\nconst fullAddresses = new Set(rules.filter(s => s.includes('@') && !s.startsWith('@')));\nconst domains = rules\n  .filter(s => !s.includes('@') || s.startsWith('@'))\n  .map(s => s.replace(/^@/, ''));\n\nconst out = [];\nfor (const item of $input.all()) {\n  const m = item.json;\n  const addr = norm(m.from?.emailAddress?.address || (typeof m.from === 'string' ? m.from : ''));\n  if (!addr) continue;\n  const domain = addr.split('@')[1] || '';\n  const hit = fullAddresses.has(addr)\n    || domains.some(d => domain === d || domain.endsWith('.' + d));\n  if (hit) {\n    out.push({ json: { id: m.id, sender: addr, subject: m.subject || '' } });\n  }\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2224,
+        -432
+      ],
+      "id": "f931df23-30c1-420f-9def-e639d06c6772",
+      "name": "Outlook 2: match senders"
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "messageId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        }
+      },
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        -2000,
+        -432
+      ],
+      "id": "56f19574-02ce-4982-980a-c7e89af8b9c6",
+      "name": "Outlook 2: delete",
+      "webhookId": "0c66951a-ea97-42ad-b2ae-a290942d17c1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const TABLE_NODE = 'Get senders';   // must match the node's name on the canvas exactly\n\nconst norm = s => String(s || '').toLowerCase().trim();\n\nconst rules = $(TABLE_NODE).all()\n  .map(i => i.json)\n  .filter(r => r.sender && ['trash', 'delete'].includes(norm(r.action)))\n  .map(r => norm(r.sender));\n\nconst fullAddresses = new Set(rules.filter(s => s.includes('@') && !s.startsWith('@')));\nconst domains = rules\n  .filter(s => !s.includes('@') || s.startsWith('@'))\n  .map(s => s.replace(/^@/, ''));\n\nconst out = [];\nfor (const item of $input.all()) {\n  const m = item.json;\n  const addr = norm(m.from?.emailAddress?.address || (typeof m.from === 'string' ? m.from : ''));\n  if (!addr) continue;\n  const domain = addr.split('@')[1] || '';\n  const hit = fullAddresses.has(addr)\n    || domains.some(d => domain === d || domain.endsWith('.' + d));\n  if (hit) {\n    out.push({ json: { id: m.id, sender: addr, subject: m.subject || '' } });\n  }\n}\nreturn out;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2224,
+        -240
+      ],
+      "id": "94f240be-5228-4748-a29c-9d606f3fe4c4",
+      "name": "Outlook 3: match senders"
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "messageId": {
+          "__rl": true,
+          "value": "={{ $json.id }}",
+          "mode": "id"
+        }
+      },
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        -2000,
+        -240
+      ],
+      "id": "fd693431-13fe-40e0-a668-ab4efd7d5867",
+      "name": "Outlook 3: delete",
+      "webhookId": "0c66951a-ea97-42ad-b2ae-a290942d17c1"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "returnAll": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.microsoftOutlook",
+      "typeVersion": 2,
+      "position": [
+        -2448,
+        -240
+      ],
+      "id": "9e28b904-ccb4-4eb6-af64-886ed3e84e28",
+      "name": "Outlook 3: get messages",
+      "webhookId": "5ab95b3f-767e-4b6f-a5ce-f04c2ca46ade",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "resource": "thread",
+        "operation": "trash",
+        "threadId": "={{ $json.id }}"
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -2000,
+        -1072
+      ],
+      "id": "3e668c9e-1674-4c5b-8eab-1a18077f69ad",
+      "name": "Gmail 3: trash",
+      "webhookId": "00aca269-a621-42ea-8cba-57846e4becdc"
+    },
+    {
+      "parameters": {
+        "resource": "thread",
+        "limit": 250,
+        "filters": {
+          "includeSpamTrash": true,
+          "q": "={{ $json.query }}"
+        }
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        -2224,
+        -1072
+      ],
+      "id": "adf5a26f-e37c-4c15-9688-90e73b27d9bc",
+      "name": "Gmail 3: search threads",
+      "webhookId": "db447ff1-02d2-4ee0-90f8-d3fcc5d84620"
+    }
+  ],
+  "connections": {
+    "Get senders": {
+      "main": [
+        [
+          {
+            "node": "Build Gmail queries",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Outlook 1: get messages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Outlook 2: get messages",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Outlook 3: get messages",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Gmail queries": {
+      "main": [
+        [
+          {
+            "node": "Gmail 1: search threads",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail 2: search threads",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Gmail 3: search threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail 1: search threads": {
+      "main": [
+        [
+          {
+            "node": "Gmail 1: trash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail 2: search threads": {
+      "main": [
+        [
+          {
+            "node": "Gmail 2: trash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Hourly trigger": {
+      "main": [
+        [
+          {
+            "node": "Get senders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outlook 1: match senders": {
+      "main": [
+        [
+          {
+            "node": "Outlook 1: delete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outlook 1: get messages": {
+      "main": [
+        [
+          {
+            "node": "Outlook 1: match senders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outlook 2: get messages": {
+      "main": [
+        [
+          {
+            "node": "Outlook 2: match senders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outlook 2: match senders": {
+      "main": [
+        [
+          {
+            "node": "Outlook 2: delete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outlook 3: match senders": {
+      "main": [
+        [
+          {
+            "node": "Outlook 3: delete",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outlook 3: get messages": {
+      "main": [
+        [
+          {
+            "node": "Outlook 3: match senders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gmail 3: search threads": {
+      "main": [
+        [
+          {
+            "node": "Gmail 3: trash",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "timeSavedMode": "fixed",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "nodeGroups": [],
+  "tags": []
+}
